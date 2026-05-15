@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: chatapp-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+      - key: DB_PATH
+        value: /data/data.db
+      - key: COMETCHAT_APP_ID
+        sync: false
+      - key: COMETCHAT_REGION
+        sync: false
+      - key: COMETCHAT_API_KEY
+        sync: false
+      - key: COMETCHAT_WEBHOOK_SECRET
+        sync: false
+    disk:
+      name: chatapp-data
+      mountPath: /data
+      sizeGB: 1

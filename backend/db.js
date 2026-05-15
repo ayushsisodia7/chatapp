@@ -21,15 +21,15 @@
  *     - Stored BOTH directions (A→B and B→A) for fast lookups
  *     - PRIMARY KEY (user_a, user_b)
  *
- * PERSISTENCE: The in-memory database is written to disk (data.db) after
- * every write operation. This survives server restarts.
+ * PERSISTENCE: The in-memory database is written to disk after every write
+ * operation. Set DB_PATH in production to a persistent disk/volume path.
  */
 
 const initSqlJs = require("sql.js");
 const fs = require("fs");
 const path = require("path");
 
-const DB_PATH = path.join(__dirname, "data.db");
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data.db");
 
 let db; // sql.js Database instance
 
@@ -39,6 +39,7 @@ let db; // sql.js Database instance
  */
 async function init() {
   const SQL = await initSqlJs();
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
   if (fs.existsSync(DB_PATH)) {
     const fileBuffer = fs.readFileSync(DB_PATH);
@@ -73,6 +74,7 @@ async function init() {
 /** Write the in-memory DB to disk so data survives restarts. */
 function persist() {
   const data = db.export();
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
@@ -215,7 +217,7 @@ function areFriends(uidA, uidB) {
 /** Get all friends of a user (returns array of { uid } objects). */
 function getFriends(uid) {
   return all(
-    "SELECT user_b AS uid FROM friendships WHERE user_a = ? ORDER BY created_at DESC",
+    "SELECT user_b AS uid, created_at FROM friendships WHERE user_a = ? ORDER BY created_at DESC",
     [uid]
   );
 }
@@ -231,4 +233,3 @@ module.exports = {
   areFriends,
   getFriends,
 };
-

@@ -1,271 +1,470 @@
 /**
- * ============================================================================
- * ConversationsSection.jsx — Chat Interface (CometChat UI Kit)
- * ============================================================================
+ * ConversationsSection — friend-scoped chat interface.
  *
- * ARCHITECTURE DECISION: This section uses CometChat's React UI Kit components
- * (CometChatConversations, CometChatMessageHeader, CometChatMessageList,
- * CometChatMessageComposer) rather than building chat UI from scratch.
- *
- * LAYOUT:
- *   Left panel (320px): Conversation list — shows all user conversations
- *   Right panel (flex): Active chat — header + messages + composer
- *
- * FILTERING APPROACH:
- *   We do NOT use itemView/titleView to filter conversations because the SDK
- *   replaces the entire default renderer when any custom view function is passed.
- *   Returning null/undefined from itemView renders blank rows (no names).
- *
- *   Instead, we rely on the fact that conversations only appear in the list
- *   after messages have been exchanged. Since non-friends CANNOT send messages
- *   (enforced at the backend + CometChat platform level), non-friend
- *   conversations simply won't exist in the list.
- *
- *   The .setConversationType("user") on the builder excludes group conversations.
- *
- * MARK AS READ:
- *   When a user opens a conversation, we fetch the last message sent BY the
- *   other user and call CometChat.markAsRead() on it. This clears:
- *     - The unread count badge on the conversation list
- *     - The "new messages" banner inside the message list
- *   Key: markAsRead only works on messages RECEIVED (not sent by you).
+ * CometChat's default conversation component returns every conversation for the
+ * logged-in SDK user. This app has stricter rules, so we fetch conversations
+ * ourselves and keep only conversations with backend-confirmed friends.
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CometChat } from "@cometchat/chat-sdk-javascript";
-import {
-  CometChatConversations,
-  CometChatMessageHeader,
-  CometChatMessageList,
-  CometChatMessageComposer,
-} from "@cometchat/chat-uikit-react";
+import { CometChatMessageHeader } from "@cometchat/chat-uikit-react";
+import { checkCanMessage, getFriends } from "../api";
+
+function userUid(user) {
+  return user?.getUid?.() || user?.uid || "";
+}
+
+function userName(user) {
+  return user?.getName?.() || user?.name || userUid(user);
+}
+
+function messageCategory(message) {
+  return message?.getCategory?.() || message?.category;
+}
+
+function messageType(message) {
+  return message?.getType?.() || message?.type;
+}
+
+function messageSentAt(message) {
+  return message?.getSentAt?.() || message?.sentAt || 0;
+}
+
+function messageText(message) {
+  if (typeof message?.getText === "function") return message.getText();
+  return message?.text || message?.data?.text || "";
+}
+
+function messageSenderUid(message) {
+  return message?.getSender?.()?.getUid?.() || message?.sender?.uid || "";
+}
+
+function messageReceiverUid(message) {
+  return message?.getReceiverId?.() || message?.receiverId || "";
+}
+
+function isVisibleChatMessage(message, friendshipCreatedAt = 0) {
+  if (!message) return false;
+  if (messageCategory(message) !== "message") return false;
+  return messageSentAt(message) >= Number(friendshipCreatedAt || 0);
+}
+
+function isMessageForUid(message, uid, loggedInUid) {
+  const sender = messageSenderUid(message);
+  const receiver = messageReceiverUid(message);
+  return (
+    (sender === uid && receiver === loggedInUid) ||
+    (sender === loggedInUid && receiver === uid)
+  );
+}
+
+function conversationUid(conversation) {
+  return userUid(conversation?.getConversationWith?.());
+}
+
+function previewText(message) {
+  if (!message) return "No messages yet";
+  if (messageType(message) === "text") return messageText(message);
+  return "Attachment";
+}
+
+function formatTime(unixSeconds) {
+  if (!unixSeconds) return "";
+  return new Date(unixSeconds * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function ConversationsSection({ startChatWith, onChatOpened }) {
   const [activeUser, setActiveUser] = useState(null);
+  const [activeFriendshipCreatedAt, setActiveFriendshipCreatedAt] = useState(0);
+  const [friendsByUid, setFriendsByUid] = useState({});
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
+  const [loggedInUid, setLoggedInUid] = useState("");
+  const messagesEndRef = useRef(null);
+  const activeUidRef = useRef("");
+  const friendsRef = useRef({});
+  const loggedInUidRef = useRef("");
 
-  // ── Conversations request builder ─────────────────────────────────────────
-  // Created once (useMemo), passed to CometChatConversations.
-  // setConversationType("user") excludes group conversations.
-  const conversationsBuilder = useMemo(
-    () =>
-      new CometChat.ConversationsRequestBuilder()
-        .setLimit(50)
-        .setConversationType("user"),
-    []
-  );
+  useEffect(() => {
+    friendsRef.current = friendsByUid;
+  }, [friendsByUid]);
 
-  // ── Mark conversation as read ─────────────────────────────────────────────
-  // Fetches the last message sent BY the other user and marks it as read.
-  // This clears the unread badge and "new messages" banner.
-  const markConversationAsRead = useCallback((uid) => {
-    CometChat.getLoggedinUser().then((loggedInUser) => {
-      if (!loggedInUser) return;
+  useEffect(() => {
+    loggedInUidRef.current = loggedInUid;
+  }, [loggedInUid]);
 
-      new CometChat.MessagesRequestBuilder()
-        .setUID(uid)
-        .setLimit(50)
-        .build()
-        .fetchPrevious()
-        .then((messages) => {
-          // Find the last message sent by the OTHER user (not by us)
-          // markAsRead only works on received messages
-          const lastReceived = [...messages]
-            .reverse()
-            .find((m) => m.getSender().getUid() !== loggedInUser.getUid());
-
-          if (lastReceived) {
-            CometChat.markAsRead(lastReceived).catch((err) =>
-              console.warn("markAsRead failed:", err)
-            );
-          }
-        })
-        .catch((err) => console.warn("fetchPrevious failed:", err));
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
     });
   }, []);
 
-  // ── Open a chat ───────────────────────────────────────────────────────────
-  // Accepts a UID string, a CometChat User object, or a plain { uid, name } object.
-  // Fetches the full user profile from CometChat so the header shows the real name.
-  const openChatRef = useRef(null);
-
-  const openChat = useCallback(
-    (uidOrUser) => {
-      setError("");
-      try {
-        let user;
-        if (typeof uidOrUser === "string") {
-          // Fetch full profile from CometChat so header shows real name/avatar
-          CometChat.getUser(uidOrUser)
-            .then((u) => {
-              setActiveUser(u);
-              setTimeout(() => markConversationAsRead(u.getUid()), 300);
-            })
-            .catch(() => {
-              const u = new CometChat.User(uidOrUser);
-              u.setName(uidOrUser);
-              setActiveUser(u);
-              setTimeout(() => markConversationAsRead(uidOrUser), 300);
-            });
-          onChatOpened?.();
-          return;
-        } else if (typeof uidOrUser?.getUid === "function") {
-          user = uidOrUser;
-        } else {
-          user = new CometChat.User(uidOrUser.uid);
-          user.setName(uidOrUser.name || uidOrUser.uid);
-        }
-
-        setActiveUser(user);
-        setTimeout(() => markConversationAsRead(user.getUid()), 300);
-        onChatOpened?.();
-      } catch (err) {
-        setError(`Could not open chat: ${err?.message ?? String(err)}`);
-      }
-    },
-    [onChatOpened, markConversationAsRead]
-  );
-
-  openChatRef.current = openChat;
-
-  // Triggered from UsersSection "Message" button (via startChatWith prop)
   useEffect(() => {
-    if (startChatWith) openChatRef.current(startChatWith);
-  }, [startChatWith]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
-  // ── Conversation list click handler ───────────────────────────────────────
-  const handleConversationClick = useCallback((conversation) => {
-    setError("");
+  const loadMessages = useCallback(async (uid, friendshipCreatedAt) => {
+    setLoadingMessages(true);
     try {
-      if (conversation.getConversationType() === "user") {
-        openChatRef.current(conversation.getConversationWith());
-      }
-    } catch (e) {
-      console.error("Conversation click error:", e);
+      const loggedIn = await CometChat.getLoggedinUser();
+      const currentUid = loggedIn?.getUid?.() || loggedInUidRef.current;
+      setLoggedInUid(currentUid);
+
+      const request = new CometChat.MessagesRequestBuilder()
+        .setUID(uid)
+        .setLimit(100)
+        .hideDeletedMessages(true)
+        .build();
+      const fetched = await request.fetchPrevious();
+      const visible = fetched.filter(
+        (message) =>
+          isVisibleChatMessage(message, friendshipCreatedAt) &&
+          isMessageForUid(message, uid, currentUid)
+      );
+      setMessages(visible);
+      return visible;
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+      setError("Could not load messages. Please try again.");
+      return [];
+    } finally {
+      setLoadingMessages(false);
     }
   }, []);
 
-  const activeUid = activeUser?.getUid?.() ?? null;
+  const markConversationAsRead = useCallback((uid, visibleMessages) => {
+    const lastReceived = [...visibleMessages]
+      .reverse()
+      .find((message) => messageSenderUid(message) === uid);
 
-  // Build activeConversation for the SDK to highlight the selected row
-  const activeConversation = useMemo(() => {
-    if (!activeUser) return undefined;
-    const c = new CometChat.Conversation();
-    c.setConversationWith(activeUser);
-    c.setConversationType("user");
-    return c;
-  }, [activeUser]);
+    if (lastReceived) {
+      CometChat.markAsRead(lastReceived).catch((err) =>
+        console.warn("markAsRead failed:", err)
+      );
+    }
+
+    setConversations((prev) =>
+      prev.map((conversation) => {
+        if (conversationUid(conversation) !== uid) return conversation;
+        conversation.setUnreadMessageCount?.(0);
+        return conversation;
+      })
+    );
+  }, []);
+
+  const syncFriends = useCallback(async () => {
+    const friends = await getFriends();
+    const friendMap = Object.fromEntries(
+      friends.map((friend) => [friend.uid, friend])
+    );
+    friendsRef.current = friendMap;
+    setFriendsByUid(friendMap);
+    return friendMap;
+  }, []);
+
+  const loadConversations = useCallback(async () => {
+    setLoadingConversations(true);
+    setError("");
+
+    try {
+      const loggedIn = await CometChat.getLoggedinUser();
+      const currentUid = loggedIn?.getUid?.() || "";
+      loggedInUidRef.current = currentUid;
+      setLoggedInUid(currentUid);
+
+      const friendMap = await syncFriends();
+
+      if (Object.keys(friendMap).length === 0) {
+        setConversations([]);
+        return;
+      }
+
+      const request = new CometChat.ConversationsRequestBuilder()
+        .setLimit(50)
+        .setConversationType("user")
+        .build();
+      const fetched = await request.fetchNext();
+
+      setConversations(
+        fetched.filter((conversation) => {
+          const uid = conversationUid(conversation);
+          const friend = friendMap[uid];
+          if (!friend) return false;
+          return isVisibleChatMessage(
+            conversation.getLastMessage?.(),
+            friend.friendshipCreatedAt
+          );
+        })
+      );
+    } catch (err) {
+      console.error("Failed to load conversations:", err);
+      setError("Could not load conversations. Please refresh.");
+    } finally {
+      setLoadingConversations(false);
+    }
+  }, [syncFriends]);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  const openChat = useCallback(
+    async (uidOrUser) => {
+      setError("");
+      const uid = typeof uidOrUser === "string" ? uidOrUser : userUid(uidOrUser);
+      let friend = friendsRef.current[uid];
+      if (!friend) {
+        const friendMap = await syncFriends();
+        friend = friendMap[uid];
+      }
+
+      if (!friend) {
+        setActiveUser(null);
+        setMessages([]);
+        activeUidRef.current = "";
+        setError("You can only open conversations with friends.");
+        onChatOpened?.();
+        return;
+      }
+
+      try {
+        await checkCanMessage(uid);
+        const user =
+          typeof uidOrUser === "string"
+            ? await CometChat.getUser(uid).catch(() => {
+                const fallback = new CometChat.User(uid);
+                fallback.setName(uid);
+                return fallback;
+              })
+            : uidOrUser;
+
+        setActiveUser(user);
+        setActiveFriendshipCreatedAt(friend.friendshipCreatedAt || 0);
+        activeUidRef.current = uid;
+        const visibleMessages = await loadMessages(
+          uid,
+          friend.friendshipCreatedAt || 0
+        );
+        markConversationAsRead(uid, visibleMessages);
+        onChatOpened?.();
+      } catch (err) {
+        setActiveUser(null);
+        setMessages([]);
+        activeUidRef.current = "";
+        setError(err.message || "You can only message friends.");
+        onChatOpened?.();
+      }
+    },
+    [loadMessages, markConversationAsRead, onChatOpened, syncFriends]
+  );
+
+  useEffect(() => {
+    if (startChatWith) openChat(startChatWith);
+  }, [startChatWith, openChat]);
+
+  useEffect(() => {
+    const listenerId = "conversations-section-listener";
+    const refreshForMessage = (message) => {
+      const activeUid = activeUidRef.current;
+      const friend = friendsRef.current[messageSenderUid(message)];
+
+      if (
+        activeUid &&
+        friend &&
+        isMessageForUid(message, activeUid, loggedInUidRef.current) &&
+        isVisibleChatMessage(message, activeFriendshipCreatedAt)
+      ) {
+        setMessages((prev) => [...prev, message]);
+        markConversationAsRead(activeUid, [message]);
+      }
+
+      loadConversations();
+    };
+
+    CometChat.addMessageListener(
+      listenerId,
+      new CometChat.MessageListener({
+        onTextMessageReceived: refreshForMessage,
+        onMediaMessageReceived: refreshForMessage,
+        onCustomMessageReceived: (message) => {
+          if (
+            message.type === "friend_request" ||
+            message.type === "friend_request_accepted"
+          ) {
+            loadConversations();
+          }
+        },
+      })
+    );
+
+    return () => CometChat.removeMessageListener(listenerId);
+  }, [
+    activeFriendshipCreatedAt,
+    loadConversations,
+    markConversationAsRead,
+  ]);
+
+  const handleSend = async (event) => {
+    event.preventDefault();
+    const text = draft.trim();
+    const uid = userUid(activeUser);
+    if (!text || !uid || sending) return;
+
+    setSending(true);
+    setError("");
+
+    try {
+      await checkCanMessage(uid);
+      const message = new CometChat.TextMessage(
+        uid,
+        text,
+        CometChat.RECEIVER_TYPE?.USER || "user"
+      );
+      const sent = await CometChat.sendMessage(message);
+      setDraft("");
+      setMessages((prev) => [...prev, sent]);
+      await loadConversations();
+    } catch (err) {
+      setError(err.message || "Message could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const activeUid = userUid(activeUser);
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* ── Left panel: Conversation list (SDK renders natively) ── */}
-      <div
-        style={{
-          width: 320,
-          flexShrink: 0,
-          borderRight: "1px solid #e5e7eb",
-          height: "100%",
-          overflow: "hidden",
-        }}
-      >
-        <CometChatConversations
-          conversationsRequestBuilder={conversationsBuilder}
-          onItemClick={handleConversationClick}
-          activeConversation={activeConversation}
-          onError={(err) => console.warn("Conversations error:", err)}
-        />
-      </div>
+    <div className="chat-layout">
+      <aside className="conversation-panel">
+        <div className="conversation-panel-header">
+          <span>Conversations</span>
+          <button type="button" onClick={loadConversations}>
+            Refresh
+          </button>
+        </div>
 
-      {/* ── Right panel: Active chat ── */}
-      <div
-        style={{
-          flex: 1,
-          height: "100%",
-          overflow: "hidden",
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
+        {loadingConversations ? (
+          <div className="conversation-state">
+            <div className="spinner" />
+            Loading conversations...
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="conversation-state">
+            No friend conversations yet.
+          </div>
+        ) : (
+          <div className="conversation-list">
+            {conversations.map((conversation) => {
+              const withUser = conversation.getConversationWith();
+              const uid = userUid(withUser);
+              const unread = conversation.getUnreadMessageCount?.() || 0;
+              const lastMessage = conversation.getLastMessage?.();
+
+              return (
+                <button
+                  key={conversation.getConversationId?.() || uid}
+                  className={`conversation-row${
+                    uid === activeUid ? " active" : ""
+                  }`}
+                  type="button"
+                  onClick={() => openChat(withUser)}
+                >
+                  <span className="avatar" aria-hidden="true">
+                    {(userName(withUser) || uid)[0]?.toUpperCase()}
+                  </span>
+                  <span className="conversation-row-body">
+                    <span className="conversation-row-title">
+                      {userName(withUser)}
+                    </span>
+                    <span className="conversation-row-preview">
+                      {previewText(lastMessage)}
+                    </span>
+                  </span>
+                  <span className="conversation-row-meta">
+                    <span>{formatTime(messageSentAt(lastMessage))}</span>
+                    {unread > 0 && <span className="unread-badge">{unread}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </aside>
+
+      <section className="chat-panel">
         {error && (
-          <div
-            role="alert"
-            style={{
-              position: "absolute",
-              top: 12,
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#b91c1c",
-              padding: "8px 16px",
-              borderRadius: 8,
-              fontSize: "0.85rem",
-              zIndex: 10,
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
+          <div className="chat-error" role="alert">
             {error}
-            <button
-              onClick={() => setError("")}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "#b91c1c",
-                fontWeight: 700,
-                fontSize: "1rem",
-                lineHeight: 1,
-              }}
-              aria-label="Dismiss"
-            >
-              ×
+            <button type="button" onClick={() => setError("")}>
+              x
             </button>
           </div>
         )}
 
         {activeUser ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
-              overflow: "hidden",
-            }}
-          >
-            {/* Message header — shows user name, avatar, online status */}
-            <div style={{ flexShrink: 0 }}>
+          <>
+            <div className="chat-header">
               <CometChatMessageHeader user={activeUser} />
             </div>
-            {/* Message list — key={activeUid} forces remount on user change */}
-            <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-              <CometChatMessageList key={activeUid} user={activeUser} />
+
+            <div className="message-list">
+              {loadingMessages ? (
+                <div className="conversation-state">
+                  <div className="spinner" />
+                  Loading messages...
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="conversation-state">
+                  No messages since you became friends.
+                </div>
+              ) : (
+                messages.map((message) => {
+                  const mine = messageSenderUid(message) === loggedInUid;
+                  return (
+                    <div
+                      key={message.getId?.() || message.getMuid?.()}
+                      className={`message-row${mine ? " mine" : ""}`}
+                    >
+                      <div className="message-bubble">
+                        <div>{previewText(message)}</div>
+                        <time>{formatTime(messageSentAt(message))}</time>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={messagesEndRef} />
             </div>
-            {/* Message composer — text input + send button */}
-            <div style={{ flexShrink: 0 }}>
-              <CometChatMessageComposer user={activeUser} />
-            </div>
-          </div>
+
+            <form className="message-composer" onSubmit={handleSend}>
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Type a message"
+                disabled={sending}
+              />
+              <button type="submit" disabled={sending || !draft.trim()}>
+                {sending ? "Sending..." : "Send"}
+              </button>
+            </form>
+          </>
         ) : (
           !error && (
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#9ca3af",
-                fontSize: "0.95rem",
-              }}
-            >
-              Select a conversation to start chatting.
+            <div className="chat-empty">
+              Select a friend conversation to start chatting.
             </div>
           )
         )}
-      </div>
+      </section>
     </div>
   );
 }

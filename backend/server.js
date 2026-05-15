@@ -256,15 +256,20 @@ app.post("/friend-requests/:id/reject", requireAuth, (req, res) => {
 
 app.get("/friends", requireAuth, async (req, res) => {
   try {
-    const friendUids = db.getFriends(req.uid).map((f) => f.uid);
+    const friends = db.getFriends(req.uid);
 
     // Enrich with full profiles from CometChat
     const profiles = await Promise.all(
-      friendUids.map(async (uid) => {
+      friends.map(async (friend) => {
         try {
-          return await cc.getUser(uid);
+          const user = await cc.getUser(friend.uid);
+          return { ...user, friendshipCreatedAt: friend.created_at };
         } catch {
-          return { uid, name: uid };
+          return {
+            uid: friend.uid,
+            name: friend.uid,
+            friendshipCreatedAt: friend.created_at,
+          };
         }
       })
     );

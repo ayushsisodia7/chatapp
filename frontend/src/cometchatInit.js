@@ -50,6 +50,9 @@ export async function initCometChat() {
 export async function loginCometChat(uid, authToken) {
   const existing = await CometChatUIKit.getLoggedinUser();
   if (existing && existing.getUid() === uid) return existing;
+  if (existing) {
+    await CometChatUIKit.logout();
+  }
 
   return CometChatUIKit.loginWithAuthToken(authToken);
 }
