@@ -29,7 +29,11 @@ const initSqlJs = require("sql.js");
 const fs = require("fs");
 const path = require("path");
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data.db");
+const DB_PATH =
+  process.env.DB_PATH ||
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH
+    ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "data.db")
+    : path.join(__dirname, "data.db"));
 
 let db; // sql.js Database instance
 

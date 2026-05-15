@@ -2,22 +2,47 @@
 
 This app deploys as two services:
 
-- Backend: Render web service with a persistent disk
+- Backend: Railway Node service with a persistent volume
 - Frontend: Vercel Vite static app
 
 ## 1. Push the latest code
 
 ```bash
 git add .
-git commit -m "Prepare app for deployment"
+git commit -m "Prepare app for Railway deployment"
 git push origin main
 ```
 
-## 2. Deploy the backend on Render
+## 2. Deploy the backend on Railway
 
-1. In Render, create a new Blueprint from this GitHub repo.
-2. Render will read `render.yaml` from the repo root.
-3. Enter these secret values when prompted:
+1. Go to Railway and create a new project from this GitHub repo.
+2. Choose the backend service if Railway detects multiple services.
+3. Open the backend service settings and set:
+
+```text
+Root Directory: /backend
+Config File: /backend/railway.json
+```
+
+4. Add a Volume to the backend service and mount it at:
+
+```text
+/data
+```
+
+The app automatically stores the database at:
+
+```text
+$RAILWAY_VOLUME_MOUNT_PATH/data.db
+```
+
+If you prefer an explicit value, set:
+
+```bash
+DB_PATH=/data/data.db
+```
+
+5. Add these backend variables:
 
 ```bash
 COMETCHAT_APP_ID=your_app_id
@@ -26,19 +51,11 @@ COMETCHAT_API_KEY=your_rest_api_key
 COMETCHAT_WEBHOOK_SECRET=choose_a_random_secret_or_leave_blank
 ```
 
-The blueprint also configures:
-
-```bash
-DB_PATH=/data/data.db
-```
-
-The `/data` mount is the persistent disk that keeps friend requests and
-friendships across deploys/restarts.
-
-After Render deploys, verify:
+6. Deploy the service, then generate or copy the public domain.
+7. Verify the backend health endpoint:
 
 ```text
-https://your-render-service.onrender.com/health
+https://your-railway-backend.up.railway.app/health
 ```
 
 It should return:
@@ -58,7 +75,7 @@ It should return:
 VITE_COMETCHAT_APP_ID=your_app_id
 VITE_COMETCHAT_REGION=us
 VITE_COMETCHAT_AUTH_KEY=your_auth_key
-VITE_API_BASE_URL=https://your-render-service.onrender.com
+VITE_API_BASE_URL=https://your-railway-backend.up.railway.app
 ```
 
 Deploy the Vercel project. The output URL is the shareable app link.
@@ -72,10 +89,10 @@ In the CometChat Dashboard:
 3. Configure the Before Message Sent webhook:
 
 ```text
-https://your-render-service.onrender.com/webhook/before-message
+https://your-railway-backend.up.railway.app/webhook/before-message
 ```
 
-If you set `COMETCHAT_WEBHOOK_SECRET` on Render, use the same secret in the
+If you set `COMETCHAT_WEBHOOK_SECRET` on Railway, use the same secret in the
 CometChat webhook configuration.
 
 ## 5. Smoke test
