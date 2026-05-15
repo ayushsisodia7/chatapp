@@ -16,15 +16,9 @@ git push origin main
 ## 2. Deploy the backend on Railway
 
 1. Go to Railway and create a new project from this GitHub repo.
-2. Choose the backend service if Railway detects multiple services.
-3. Open the backend service settings and set:
-
-```text
-Root Directory: /backend
-Config File: /backend/railway.json
-```
-
-4. Add a Volume to the backend service and mount it at:
+2. Railway will use the root `Dockerfile` and `railway.json` to deploy only
+   the backend. You do not need to set a root directory.
+3. Add a Volume to the backend service and mount it at:
 
 ```text
 /data
@@ -42,7 +36,7 @@ If you prefer an explicit value, set:
 DB_PATH=/data/data.db
 ```
 
-5. Add these backend variables:
+4. Add these backend variables:
 
 ```bash
 COMETCHAT_APP_ID=your_app_id
@@ -51,8 +45,8 @@ COMETCHAT_API_KEY=your_rest_api_key
 COMETCHAT_WEBHOOK_SECRET=choose_a_random_secret_or_leave_blank
 ```
 
-6. Deploy the service, then generate or copy the public domain.
-7. Verify the backend health endpoint:
+5. Deploy the service, then generate or copy the public domain.
+6. Verify the backend health endpoint:
 
 ```text
 https://your-railway-backend.up.railway.app/health
