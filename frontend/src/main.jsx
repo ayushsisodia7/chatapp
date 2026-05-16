@@ -1,3 +1,11 @@
+/**
+ * ============================================================================
+ * main.jsx — Application entry point
+ * ============================================================================
+ *
+ * This file bootstraps the React application, wraps it in an error boundary,
+ * and imports global styles plus the CometChat UI Kit base CSS.
+ */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
@@ -5,6 +13,10 @@ import "./index.css";
 // CometChat UI Kit base styles
 import "@cometchat/chat-uikit-react/css-variables.css";
 
+/**
+ * ErrorBoundary — catches rendering errors and displays a fallback UI.
+ * This prevents the entire app from crashing due to a component exception.
+ */
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

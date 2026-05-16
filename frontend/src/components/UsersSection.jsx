@@ -67,7 +67,9 @@ export default function UsersSection({ currentUid, onStartChat }) {
     return () => CometChat.removeMessageListener(listenerId);
   }, [fetchUsers]);
 
-  // ── Send a friend request ─────────────────────────────────────────────────
+  /**
+   * Send a friend request to another user and optimistically update the UI.
+   */
   const handleSendRequest = async (toUid) => {
     setSending((prev) => ({ ...prev, [toUid]: true }));
     try {
@@ -83,8 +85,9 @@ export default function UsersSection({ currentUid, onStartChat }) {
     }
   };
 
-  // ── Open chat with a friend ───────────────────────────────────────────────
-  // Passes the UID to App.jsx which switches to Conversations tab
+  /**
+   * Open a chat with the selected friend by delegating to the parent App.
+   */
   const handleMessage = (uid) => {
     onStartChat(uid);
   };

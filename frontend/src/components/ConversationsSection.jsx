@@ -11,45 +11,75 @@ import { CometChat } from "@cometchat/chat-sdk-javascript";
 import { CometChatMessageHeader } from "@cometchat/chat-uikit-react";
 import { checkCanMessage, getFriends } from "../api";
 
+/**
+ * Extract the UID from a CometChat user object or fallback object.
+ */
 function userUid(user) {
   return user?.getUid?.() || user?.uid || "";
 }
 
+/**
+ * Extract the display name from a CometChat user object or fallback object.
+ */
 function userName(user) {
   return user?.getName?.() || user?.name || userUid(user);
 }
 
+/**
+ * Determine the category of a CometChat message object.
+ */
 function messageCategory(message) {
   return message?.getCategory?.() || message?.category;
 }
 
+/**
+ * Determine the message type (text, custom, media, etc.) from a message object.
+ */
 function messageType(message) {
   return message?.getType?.() || message?.type;
 }
 
+/**
+ * Get the timestamp when the message was sent, in seconds.
+ */
 function messageSentAt(message) {
   return message?.getSentAt?.() || message?.sentAt || 0;
 }
 
+/**
+ * Get the text body from a CometChat message, handling SDK and raw shapes.
+ */
 function messageText(message) {
   if (typeof message?.getText === "function") return message.getText();
   return message?.text || message?.data?.text || "";
 }
 
+/**
+ * Get the sender UID from a CometChat message object.
+ */
 function messageSenderUid(message) {
   return message?.getSender?.()?.getUid?.() || message?.sender?.uid || "";
 }
 
+/**
+ * Get the receiver UID from a CometChat message object.
+ */
 function messageReceiverUid(message) {
   return message?.getReceiverId?.() || message?.receiverId || "";
 }
 
+/**
+ * Determine whether a message should be shown based on friendship creation time.
+ */
 function isVisibleChatMessage(message, friendshipCreatedAt = 0) {
   if (!message) return false;
   if (messageCategory(message) !== "message") return false;
   return messageSentAt(message) >= Number(friendshipCreatedAt || 0);
 }
 
+/**
+ * Check if a message is part of the conversation between two UIDs.
+ */
 function isMessageForUid(message, uid, loggedInUid) {
   const sender = messageSenderUid(message);
   const receiver = messageReceiverUid(message);
@@ -59,16 +89,25 @@ function isMessageForUid(message, uid, loggedInUid) {
   );
 }
 
+/**
+ * Extract the other user's UID from a conversation object.
+ */
 function conversationUid(conversation) {
   return userUid(conversation?.getConversationWith?.());
 }
 
+/**
+ * Build a preview string for the last message in a conversation.
+ */
 function previewText(message) {
   if (!message) return "No messages yet";
   if (messageType(message) === "text") return messageText(message);
   return "Attachment";
 }
 
+/**
+ * Format a Unix timestamp in seconds as a short local time string.
+ */
 function formatTime(unixSeconds) {
   if (!unixSeconds) return "";
   return new Date(unixSeconds * 1000).toLocaleTimeString([], {
@@ -217,6 +256,9 @@ export default function ConversationsSection({ startChatWith, onChatOpened }) {
     loadConversations();
   }, [loadConversations]);
 
+  /**
+   * Open a chat with a friend and load messages from the friendship start time.
+   */
   const openChat = useCallback(
     async (uidOrUser) => {
       setError("");
@@ -313,6 +355,9 @@ export default function ConversationsSection({ startChatWith, onChatOpened }) {
     markConversationAsRead,
   ]);
 
+  /**
+   * Send a chat message to the active friend after verifying friendship.
+   */
   const handleSend = async (event) => {
     event.preventDefault();
     const text = draft.trim();

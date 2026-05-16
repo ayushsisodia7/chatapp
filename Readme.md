@@ -18,7 +18,6 @@ chatapp/
 │   ├── cometchat.js           # CometChat REST API wrapper
 │   ├── package.json           # Backend dependencies and scripts
 │   ├── .env.example           # Backend environment variable template
-│   └── railway.json           # Railway backend config kept for fallback deploys
 │
 ├── frontend/
 │   ├── src/
@@ -37,7 +36,6 @@ chatapp/
 │
 ├── Dockerfile                 # Root Dockerfile used by Render backend deploy
 ├── render.yaml                # Render blueprint/config
-├── railway.json               # Railway fallback config
 ├── DEPLOYMENT.md              # Hosted deployment notes
 └── Readme.md                  # Project documentation
 ```

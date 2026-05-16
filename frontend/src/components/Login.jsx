@@ -13,6 +13,11 @@ export default function Login({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  /**
+   * Handle login form submission.
+   * Normalizes the UID, validates input, performs backend login,
+   * and reports any authentication errors to the user.
+   */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");

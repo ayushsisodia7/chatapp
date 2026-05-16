@@ -47,6 +47,10 @@ app.use(express.json());
 // In production, this would be replaced with JWT verification or session cookies.
 // The key point: the backend MUST know who the user is to enforce friendship rules.
 
+/**
+ * requireAuth — middleware that validates the X-User-UID header.
+ * Attaches req.uid for downstream handlers to identify the current user.
+ */
 function requireAuth(req, res, next) {
   const uid = req.headers["x-user-uid"];
   if (!uid) return res.status(401).json({ error: "Missing X-User-UID header" });

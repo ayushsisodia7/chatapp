@@ -116,7 +116,10 @@ export default function App() {
     return () => CometChat.removeMessageListener(listenerId);
   }, [currentUser, ccReady, refreshPendingCount]);
 
-  // ── Login handler ─────────────────────────────────────────────────────────
+  /**
+   * Handle successful login from the login form.
+   * Stores session state and logs into CometChat with the backend auth token.
+   */
   const handleLogin = async (uid, name, authToken) => {
     setLoggingIn(true);
     try {
@@ -130,7 +133,9 @@ export default function App() {
     }
   };
 
-  // ── Logout handler ────────────────────────────────────────────────────────
+  /**
+   * Log out the current user from CometChat and clear local session state.
+   */
   const handleLogout = async () => {
     await logoutCometChat();
     sessionStorage.removeItem("uid");
@@ -141,14 +146,17 @@ export default function App() {
     setStartChatWithUid(null);
   };
 
-  // ── Cross-section navigation ──────────────────────────────────────────────
-  // Called from UsersSection "Message" button — switches to Conversations tab
+  /**
+   * Set the active user for chat and switch to the conversations tab.
+   */
   const handleStartChat = (uid) => {
     setStartChatWithUid(uid);
     setActiveTab("conversations");
   };
 
-  // Called by ConversationsSection once it has consumed startChatWithUid
+  /**
+   * Clear the pending chat starter once the conversation has been opened.
+   */
   const handleChatOpened = useCallback(() => {
     setStartChatWithUid(null);
   }, []);

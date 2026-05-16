@@ -1,3 +1,11 @@
+/**
+ * ============================================================================
+ * vite.config.js — Vite development server configuration
+ * ============================================================================
+ *
+ * Configures the React plugin, dev server settings, and dependency
+ * optimization for the CometChat SDK packages.
+ */
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
