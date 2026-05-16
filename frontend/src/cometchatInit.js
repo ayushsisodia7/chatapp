@@ -16,6 +16,7 @@
  */
 
 import { CometChatUIKit, UIKitSettingsBuilder } from "@cometchat/chat-uikit-react";
+import { CometChat } from "@cometchat/chat-sdk-javascript";
 
 const APP_ID = import.meta.env.VITE_COMETCHAT_APP_ID;
 const REGION = import.meta.env.VITE_COMETCHAT_REGION || "us";
@@ -34,6 +35,7 @@ export async function initCometChat() {
     .setAppId(APP_ID)
     .setRegion(REGION)
     .setAuthKey(AUTH_KEY)
+    .setStorageMode(CometChat.StorageMode.SESSION)
     .subscribePresenceForFriends()
     .build();
 
